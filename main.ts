@@ -11,7 +11,8 @@
 // Before the copy it sanity-checks the shipped picture — it must exist, must
 // not be empty, must begin with the eight-byte PNG signature, and its IHDR
 // chunk must declare exactly 1024 by 1024 pixels, the size this competition
-// requires. If any of that fails, the program says so plainly and exits
+// requires, and it must end with a valid IEND chunk, so a truncated copy is
+// caught. If any of that fails, the program says so plainly and exits
 // non-zero instead of submitting a broken file.
 //
 // The grader runs it with no network and a writable /output. Locally,
@@ -52,6 +53,16 @@ const width = png.readUInt32BE(16);
 const height = png.readUInt32BE(20);
 if (width !== 1024 || height !== 1024) {
   die(`entry.png is ${width}x${height}, not the required 1024x1024`);
+}
+// A well-formed PNG ends with a 12-byte IEND chunk: zero length, the
+// letters "IEND", and the fixed CRC 0xAE426082. A file that was truncated
+// mid-write would still pass the signature and IHDR checks above, so this
+// last check catches a copy that lost its tail.
+const IEND_LENGTH = 12;
+if (png.length < IEND_LENGTH) die('entry.png is too short to hold an IEND chunk');
+const tail = png.subarray(png.length - IEND_LENGTH);
+if (tail.readUInt32BE(0) !== 0 || tail.subarray(4, 8).toString('ascii') !== 'IEND' || tail.readUInt32BE(8) !== 0xae426082) {
+  die('entry.png does not end with a valid IEND chunk — the shipped image is truncated or damaged');
 }
 
 mkdirSync(outDir, { recursive: true });
